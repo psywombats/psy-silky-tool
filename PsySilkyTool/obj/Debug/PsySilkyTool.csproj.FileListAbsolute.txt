@@ -1,0 +1,7 @@
+E:\PsySilkyTool\PsySilkyTool\bin\Debug\PsySilkyTool.exe.config
+E:\PsySilkyTool\PsySilkyTool\bin\Debug\PsySilkyTool.exe
+E:\PsySilkyTool\PsySilkyTool\bin\Debug\PsySilkyTool.pdb
+E:\PsySilkyTool\PsySilkyTool\obj\Debug\PsySilkyTool.csprojAssemblyReference.cache
+E:\PsySilkyTool\PsySilkyTool\obj\Debug\PsySilkyTool.csproj.CoreCompileInputs.cache
+E:\PsySilkyTool\PsySilkyTool\obj\Debug\PsySilkyTool.exe
+E:\PsySilkyTool\PsySilkyTool\obj\Debug\PsySilkyTool.pdb
