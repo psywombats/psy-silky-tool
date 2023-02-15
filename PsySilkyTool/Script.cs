@@ -7,7 +7,7 @@ public class Script
 {
     public PsySilkyTool Tool { get; private set; }
 
-    private FileInfo engFile, srcFile, outFile;
+    private FileInfo engFile, srcFile;
     
     private List<TranslationLine> tls = new List<TranslationLine>();
     private List<LogicalLine> lines = new List<LogicalLine>();
@@ -50,12 +50,12 @@ public class Script
             return false;
         }
 
-        if (!VerifyLines())
+        VerifyLines();
+        
+        if (!WriteLines())
         {
             return false;
         }
-        
-        // todo: write
 
 
         return true;
@@ -90,14 +90,14 @@ public class Script
                 line = line.Replace("\n", "");
                 line = line.Replace("<", "");
                 line = line.Replace(">", "");
+                if (line.EndsWith("\\")) line = line.Substring(0, line.Length - 1);
                 line = TextUtils.CleanQuotes(line);
             }
 
             // whitespace or garbage
-            var isGarbage = line.Length == 0 || line.StartsWith(";") 
-                || line.StartsWith(":") || line.StartsWith("●") || line.StartsWith("--")
+            var isGarbage = line.Length == 0 || line.StartsWith(";") || line.StartsWith(":") || line.StartsWith("●")
                 || (line.StartsWith("\\") && !line.StartsWith("\\r"));
-            if (isGarbage && line.Length > 2 && tlLine.ReferenceLines.Count > 0 && TextUtils.IsLetter(line[1]))
+            if (isGarbage && line.Length > 2 && tlLine.ReferenceLines.Count > 0 && !TextUtils.IsAnyFullWidth(line))
             {
                 // accidental ; in front of an eng line
                 isGarbage = false;
@@ -113,7 +113,7 @@ public class Script
                     if (line.Length == 0 && lineNo < splitLines.Length)
                     {
                         var nextLine = splitLines[lineNo + 1];
-                        if (nextLine.Length > 1 && TextUtils.IsLetter(nextLine[1]))
+                        if (nextLine.Length > 1 && !TextUtils.IsAnyFullWidth(nextLine))
                         {
                             continue;
                         }
@@ -175,7 +175,7 @@ public class Script
             }
 
             // is this a jp line?
-            if (TextUtils.IsCharFullWidth(line[0]) || (line.Length > 3 && TextUtils.IsCharFullWidth(line[3])))
+            if (TextUtils.IsAnyFullWidth(line) || (TextUtils.IsPunctuation(line) && tlLine.ReferenceLines.Count == 0))
             {
                 if (tlLine.TranslatedLines.Count > 0)
                 {
@@ -194,6 +194,7 @@ public class Script
             }
 
             // assume it's an EN line
+            if (line.StartsWith("\\")) line = line.Substring(1);
             tlLine.TranslatedLines.Add(line);
         }
 
@@ -453,6 +454,181 @@ public class Script
                 Tool.Error($"{this}: No TL match found for {line.CombinedJpLine}\n");
             }
         }
+
+        return errorCount == 0;
+    }
+
+    private bool WriteLines()
+    {
+        var splitLines = TextUtils.Utf8FromJisFile(srcFile.FullName).Split('\n');
+        var errorCount = 0;
+
+        var outPath = $"{Tool.outDir.FullName}/{srcFile.Name}";
+        if (File.Exists(outPath))
+        {
+            File.Delete(outPath);
+        }
+        var outWriter = new StreamWriter(File.OpenWrite(outPath));
+        
+        var squashedLineCount = 0;
+        var logicalLineNo = 0;
+        var logicalLineSubindex = 0;
+        for (var lineNo = 0; lineNo < splitLines.Length - 1 && errorCount < 10; lineNo += 2)
+        {
+            var opLine = splitLines[lineNo].Trim();
+            var dataLine = splitLines[lineNo + 1].Trim();
+            var dataOutLine = dataLine;
+
+            if (opLine.StartsWith("#2") || opLine.StartsWith("#3"))
+            {
+                // this is a label, not an op
+                lineNo -= 1;
+                outWriter.WriteLine(opLine);
+                continue;
+            }
+
+            LogicalLine logicalLine = null;
+            if (logicalLineNo < lines.Count)
+            {
+                logicalLine = lines[logicalLineNo];
+            }
+            
+            // #1-STR_UNCRYPT
+            var opcode = opLine.Substring(3);
+            if (opcode == "TO_NEW_STRING")
+            {
+                if (squashedLineCount > 0)
+                {
+                    // this jp line has been compressed into the previous line
+                    continue;
+                }
+            }
+            if (opcode == "STR_UNCRYPT")
+            {
+                if (squashedLineCount > 0)
+                {
+                    // skip the weird dots for free
+                    if (dataLine != "[\"・\"]")
+                    {
+                        squashedLineCount -= 1;
+                    }
+                    continue;
+                }
+
+                // ["『５班か。どういうメンバーがいるんだろう。緊張する』"]
+                var text = dataLine.Substring(2, dataLine.Length - 4);
+                text = text.Replace("\\r", "");
+                text = TextUtils.CleanQuotes(text);
+                if (text == "・")
+                {
+                    dataOutLine = "[\"\"]";
+                }
+                else
+                {
+                    if (logicalLine == null)
+                    {
+                        Tool.Error($"{this}: Exhaused logical lines before EOF");
+                        return false;
+                    }
+
+                    var jpSubline = logicalLine.JpSublines[logicalLineSubindex];
+                    if (jpSubline.Equals(text))
+                    {
+                        var engSubline = "";
+                        if (logicalLineSubindex < logicalLine.EngSublines.Count)
+                        {
+                            engSubline = logicalLine.EngSublines[logicalLineSubindex];
+                        }
+                        else
+                        {
+                            Tool.Error($"{this}: no corresponding ENG line for {jpSubline}");
+                        }
+
+                        dataOutLine = $"[\"{TextUtils.QuoteLiterals(engSubline)}\"]";
+                        if (logicalLineSubindex == logicalLine.JpSublines.Count - 1)
+                        {
+                            logicalLineSubindex = 0;
+                            logicalLineNo += 1;
+                        }
+                        else if (logicalLineSubindex == logicalLine.EngSublines.Count - 1)
+                        {
+                            // we have one EN line for a multipart JP line
+                            // we want to skip the next TO_NEW_STRING and STR_UNCRYPT ops
+                            squashedLineCount = logicalLine.JpSublines.Count - logicalLine.EngSublines.Count;
+                            logicalLineSubindex = 0;
+                            logicalLineNo += 1;
+                        }
+                        else
+                        {
+                            logicalLineSubindex += 1;
+                        }
+                    }
+                    else
+                    {
+                        Tool.Error($"{this}: Logical lines don't match .mes on line {lineNo}");
+                        Tool.Log($"Have: {text}");
+                        Tool.Log($"Expected: {jpSubline}\n");
+                        errorCount += 1;
+                    }
+                }
+            }
+            else if (opcode == "PUSH_STR")
+            {
+                if (dataLine.StartsWith("[\"【"))
+                {
+                    // it's a name
+                    var jpName = dataLine.Substring(3, dataLine.Length - 6);
+                    if (Tool.NameTable.TryGetValue(jpName, out var engName))
+                    {
+                        dataOutLine = $"[\"{TextUtils.QuoteLiterals(engName)}\"]";
+                    }
+                    else if (!Tool.UnseenNames.Contains(jpName))
+                    {
+                        Tool.UnseenNames.Add(jpName);
+                        Tool.Warn($"{this}: Unknown name {jpName} on line {lineNo}");
+                    }
+                }
+                else if (TextUtils.IsAnyFullWidth(dataLine))
+                {
+                    // I don't know wtf this is but writing full width charas will blow it up
+                    // TODO i guess
+                    dataOutLine = $"[\"pushed str line {lineNo}\"]";
+                }
+            }
+
+            var invalid = false;
+            foreach (var c in opLine)
+            {
+                if (TextUtils.IsCharFullWidth(c))
+                {
+                    Tool.Error($"{this}: can't write line because it contains full-width characters:");
+                    Tool.Log(opLine);
+                    invalid = true;
+                    break;
+                }
+            }
+            foreach (var c in dataOutLine)
+            {
+                if (TextUtils.IsCharFullWidth(c))
+                {
+                    Tool.Error($"{this}: can't write line because it contains full-width characters:");
+                    Tool.Log(dataOutLine);
+                    invalid = true;
+                    break;
+                }
+            }
+
+            if (invalid)
+            {
+                errorCount += 1;
+                continue;
+            }
+            outWriter.WriteLine(opLine);
+            outWriter.WriteLine(dataOutLine);
+        }
+
+        outWriter.WriteLine("");
+        outWriter.Close();
 
         return errorCount == 0;
     }

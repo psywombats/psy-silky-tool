@@ -20,7 +20,7 @@ public static class TextUtils
     public static bool IsCharFullWidth(char c)
     {
         var byteCount = shiftJIS.GetByteCount(c.ToString());
-        return byteCount == 2;
+        return byteCount == 2 && c != '─';
     }
 
     public static string Quote(string str)
@@ -35,6 +35,20 @@ public static class TextUtils
             a = a.Substring(1);
         }
         if (a.EndsWith("』"))
+        {
+            a = a.Substring(0, a.Length - 1);
+        }
+        a = a.Trim();
+        return a;
+    }
+
+    public static string CleanNametags(string a)
+    {
+        if (a.StartsWith("【"))
+        {
+            a = a.Substring(1);
+        }
+        if (a.EndsWith("】"))
         {
             a = a.Substring(0, a.Length - 1);
         }
@@ -172,5 +186,40 @@ public static class TextUtils
     public static bool IsLetter(char c)
     {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }
+
+    public static string QuoteLiterals(string a) => a.Replace("\"", "\\\"");
+
+    public static bool IsAnyFullWidth(string s)
+    {
+        foreach (var c in s)
+        {
+            if (IsCharFullWidth(c))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // just jp/en
+    public static bool IsPunctuation(string s)
+    {
+        foreach (var c in s)
+        {
+            switch (c)
+            {
+                case '.':
+                case '?':
+                case '!':
+                case '─':
+                case '\'':
+                case '"':
+                    continue;
+                default:
+                    return false;
+            }
+        }
+        return true;
     }
 }

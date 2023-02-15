@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 public class PsySilkyTool
@@ -8,6 +9,9 @@ public class PsySilkyTool
     public DirectoryInfo sourceDir { get; private set; }
     public DirectoryInfo engDir { get; private set; }
     public DirectoryInfo outDir { get; private set; }
+
+    public HashSet<string> UnseenNames { get; private set; } = new HashSet<string>();
+    public Dictionary<string, string> NameTable { get; private set; } = new Dictionary<string, string>();
 
     static void Main(string[] args)
     {
@@ -51,6 +55,8 @@ public class PsySilkyTool
         }
         outDir.Create();
 
+        ReadNameTable();
+
         foreach (var engFile in engDir.EnumerateFiles())
         {
             ProcessFile(engFile);
@@ -79,8 +85,41 @@ public class PsySilkyTool
             Log($"Skipping {engFile.Name}-- not a .txt");
             return;
         }
+        if (engFile.Name == "nametable.txt")
+        {
+            return;
+        }
 
         var script = new Script(this, engFile);
         script.Process();
+    }
+
+    private void ReadNameTable()
+    {
+        var nameTablePath = engDir.FullName + "/nametable.txt";
+        if (!File.Exists(nameTablePath))
+        {
+            Warn($"Can't find name table: {nameTablePath}");
+        }
+        
+        var lines = File.ReadAllLines(nameTablePath);
+        foreach (var line in lines)
+        {
+            var parts = line.Split(new char[] { '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2)
+            {
+                NameTable[parts[0]] = parts[1];
+                
+            }
+            else if (parts.Length == 1)
+            {
+                Warn($"Need a TL for name {parts[0]}");
+                NameTable[parts[0]] = parts[0];
+            }
+            else
+            {
+                Error($"Malformatted name table line: {line}");
+            }
+        }
     }
 }

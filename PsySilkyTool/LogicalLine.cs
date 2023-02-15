@@ -46,8 +46,8 @@ public class LogicalLine
 
         if (tl.TranslatedLines.Count == JpSublines.Count)
         {
-            succeeded = true;
             EngSublines.AddRange(tl.TranslatedLines);
+            succeeded = true;
         }
         else if (JpSublines.Count == 1 || !IsSplitForced)
         {
@@ -70,6 +70,13 @@ public class LogicalLine
         }
         if (!succeeded)
         {
+            script.Tool.Error($"{script}: Couldn't break down line:\n{CombinedJpLine}\n" + $"" +
+                $"A split is forced into {JpSublines.Count} parts, but EN can't be autosplit: {CombinedEngLine}\n");
+            EngSublines.Add(CombinedEngLine);
+            while (EngSublines.Count < JpSublines.Count)
+            {
+                EngSublines.Add("");
+            }
             return false;
         }
 
